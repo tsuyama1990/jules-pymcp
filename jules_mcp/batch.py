@@ -30,6 +30,7 @@ class BatchTaskSpec(BaseModel):
     source: str
     branch: str = "main"
     title: str | None = None
+    acceptance_criteria: list[str] = []
 
 
 class BatchSessionResult(BaseModel):
@@ -82,7 +83,7 @@ def _create_one(
     """Create a single session — runs inside a thread pool worker."""
     try:
         session = client.sessions.create(
-            prompt=build_enforced_prompt(task.prompt),
+            prompt=build_enforced_prompt(task.prompt, task.acceptance_criteria or None),
             source=task.source,
             starting_branch=task.branch,
             title=task.title,

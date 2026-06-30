@@ -65,17 +65,31 @@ def _load_rules() -> list[str]:
 _RULES: list[str] = _load_rules()
 
 
-def build_enforced_prompt(user_prompt: str) -> str:
-    """Wrap a user prompt with mandatory quality rules.
+def build_enforced_prompt(
+    user_prompt: str,
+    acceptance_criteria: list[str] | None = None,
+) -> str:
+    """Wrap a user prompt with mandatory quality rules and optional acceptance criteria.
 
     Rules are placed before the task so Jules reads constraints before intent.
+    Acceptance criteria appear as a checklist Jules must satisfy before opening a PR.
 
     Args:
         user_prompt: The original task description from the caller.
+        acceptance_criteria: Scenario-level pass/fail conditions for this specific task.
 
     Returns:
-        A prompt string with quality rules prepended.
+        A prompt string with quality rules and acceptance criteria prepended.
 
     """
     numbered = "\n".join(f"{i + 1}. {rule}" for i, rule in enumerate(_RULES))
-    return f"## Mandatory Quality Rules (non-negotiable)\n{numbered}\n\n## Task\n{user_prompt}"
+    criteria_section = ""
+    if acceptance_criteria:
+        checklist = "\n".join(f"- [ ] {c}" for c in acceptance_criteria)
+        header = "## Acceptance Criteria (all boxes must be checked before opening PR)"
+        criteria_section = f"\n\n{header}\n{checklist}"
+    return (
+        f"## Mandatory Quality Rules (non-negotiable)\n{numbered}"
+        f"{criteria_section}"
+        f"\n\n## Task\n{user_prompt}"
+    )

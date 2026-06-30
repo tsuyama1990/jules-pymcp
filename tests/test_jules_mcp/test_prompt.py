@@ -65,3 +65,22 @@ class TestBuildEnforcedPrompt:
         for rule in _DEFAULT_RULES:
             assert rule[:40] in result
         importlib.reload(prompt_module)
+
+    def test_acceptance_criteria_appear_as_checklist(self) -> None:
+        criteria = ["POST /login returns 200 on valid credentials", "invalid token returns 401"]
+        result = build_enforced_prompt("implement auth", criteria)
+        assert "Acceptance Criteria" in result
+        assert "- [ ] POST /login returns 200 on valid credentials" in result
+        assert "- [ ] invalid token returns 401" in result
+
+    def test_acceptance_criteria_before_task_section(self) -> None:
+        result = build_enforced_prompt("task", ["criterion A"])
+        assert result.index("Acceptance Criteria") < result.index("## Task")
+
+    def test_no_acceptance_criteria_section_when_empty(self) -> None:
+        result = build_enforced_prompt("task", [])
+        assert "Acceptance Criteria" not in result
+
+    def test_no_acceptance_criteria_section_when_none(self) -> None:
+        result = build_enforced_prompt("task", None)
+        assert "Acceptance Criteria" not in result

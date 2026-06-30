@@ -94,6 +94,23 @@ class TestCreateOne:
         assert "Mandatory Quality Rules" in called_prompt
         assert "Add tests to the auth module" in called_prompt
 
+    def test_acceptance_criteria_injected_into_prompt(self) -> None:
+        client = MagicMock()
+        client.sessions.create.return_value = _make_session()
+        task = BatchTaskSpec(
+            label="auth",
+            prompt="implement login endpoint",
+            source="sources/github/org/repo",
+            acceptance_criteria=["POST /login returns 200", "bad password returns 401"],
+        )
+
+        _create_one(client, task, auto_self_review=False)
+
+        prompt = client.sessions.create.call_args.kwargs["prompt"]
+        assert "POST /login returns 200" in prompt
+        assert "bad password returns 401" in prompt
+        assert "Acceptance Criteria" in prompt
+
     def test_returns_error_on_api_failure(self) -> None:
         client = MagicMock()
         client.sessions.create.side_effect = RuntimeError("API down")
