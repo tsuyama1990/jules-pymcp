@@ -54,6 +54,18 @@ class BatchSessionStatus(BaseModel):
     error: str | None = None
 
 
+class BatchPollResult(BaseModel):
+    """Result of a single poll across all sessions in a batch."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    ready: bool
+    pr_urls: list[str]
+    pending: list[str]
+    failed: list[str]
+    statuses: list[BatchSessionStatus]
+
+
 def _extract_pr_url(outputs: list[SessionOutput]) -> str | None:
     """Extract the first PR URL from session outputs."""
     for output in outputs:
@@ -135,6 +147,34 @@ def get_batch_status(
                 statuses.append(BatchSessionStatus(session_id=sid, error=str(exc)))
 
     return sorted(statuses, key=lambda s: session_ids.index(s.session_id))
+
+
+_TERMINAL_STATES: frozenset[str] = frozenset({"COMPLETED", "FAILED"})
+
+
+def poll_batch(client: JulesClient, session_ids: list[str]) -> BatchPollResult:
+    """Check all sessions once and return a ready flag plus PR URLs.
+
+    ready=True means every session has reached a terminal state (COMPLETED or FAILED)
+    and polling can stop. pr_urls lists the PRs that are ready to merge, in input order.
+    """
+    statuses = get_batch_status(client, session_ids)
+    pr_urls = [s.pr_url for s in statuses if s.pr_url is not None]
+    pending = [
+        s.session_id for s in statuses
+        if (s.state or "") not in _TERMINAL_STATES and s.error is None
+    ]
+    failed = [
+        s.session_id for s in statuses
+        if s.state == "FAILED" or s.error is not None
+    ]
+    return BatchPollResult(
+        ready=len(pending) == 0,
+        pr_urls=pr_urls,
+        pending=pending,
+        failed=failed,
+        statuses=statuses,
+    )
 
 
 def _fetch_status(client: JulesClient, session_id: str) -> BatchSessionStatus:

@@ -22,11 +22,11 @@ from mcp.types import ToolAnnotations
 from jules_mcp import agents_md as _agents_md
 from jules_mcp import github_ops as _github_ops
 from jules_mcp.batch import (
+    BatchPollResult,
     BatchSessionResult,
-    BatchSessionStatus,
     BatchTaskSpec,
     create_batch,
-    get_batch_status,
+    poll_batch,
 )
 from jules_mcp.prompt import build_enforced_prompt
 from jules_mcp.session_watcher import watch_session_for_pr
@@ -331,7 +331,7 @@ def list_all_activities(session_id: str) -> list[models.Activity]:
         "Fire multiple Jules coding sessions concurrently. "
         "Each task gets quality rules injected and a self-critic review scheduled. "
         "Returns one result per task with session ID and initial state. "
-        "Use wait_for_batch to monitor progress, then merge PRs one by one."
+        "After firing, call poll_batch every 5 minutes until ready=True, then merge PRs."
     ),
     tags={"batch"},
 )
@@ -354,27 +354,32 @@ def create_batch_sessions(
 
 
 @mcp.tool(
-    name="wait_for_batch",
-    title="Get batch session status",
+    name="poll_batch",
+    title="Poll batch (call every 5 min)",
     description=(
-        "Fetch the current status of all sessions in a batch — non-blocking snapshot. "
-        "Returns state and PR URL for each session. "
-        "Call repeatedly to monitor progress. "
-        "When a session shows COMPLETED with a pr_url, it is ready to review and merge."
+        "Check status of all sessions in a batch — non-blocking snapshot. "
+        "Call every 5 minutes after create_batch_sessions. "
+        "When ready=True every session has finished: pr_urls lists PRs to merge in order, "
+        "failed lists sessions that need attention. "
+        "If ready=False, reschedule and call again in 5 minutes."
     ),
     tags={"batch"},
 )
-def wait_for_batch(session_ids: list[str]) -> list[BatchSessionStatus]:
-    """Fetch current status of multiple sessions concurrently.
+def poll_batch_tool(session_ids: list[str]) -> BatchPollResult:
+    """Poll all sessions and return a ready flag plus PR URLs.
 
     Args:
-        session_ids: List of session IDs (or names) returned by create_batch_sessions.
+        session_ids: List of session IDs returned by create_batch_sessions.
 
     Returns:
-        One status entry per session with current state and PR URL if available.
+        ready: True when all sessions have reached a terminal state.
+        pr_urls: PR URLs for completed sessions, in input order.
+        pending: Session IDs still running.
+        failed: Session IDs that failed or errored.
+        statuses: Full status detail for each session.
 
     """
-    return get_batch_status(jules(), session_ids)
+    return poll_batch(jules(), session_ids)
 
 
 # -------------------- GitHub operations --------------------

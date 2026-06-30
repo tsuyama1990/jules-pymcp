@@ -7,12 +7,14 @@ from unittest.mock import MagicMock, patch
 from jules_agent_sdk import models
 
 from jules_mcp.batch import (
+    BatchPollResult,
     BatchTaskSpec,
     _create_one,
     _extract_pr_url,
     _fetch_status,
     create_batch,
     get_batch_status,
+    poll_batch,
 )
 
 
@@ -209,3 +211,74 @@ class TestGetBatchStatus:
         assert len(statuses) == 2
         errors = [s for s in statuses if s.error is not None]
         assert len(errors) == 1
+
+
+class TestPollBatch:
+    def test_ready_when_all_completed(self) -> None:
+        client = MagicMock()
+        client.sessions.get.side_effect = [
+            _make_session("sessions/s1", state=models.SessionState.COMPLETED,
+                          pr_url="https://github.com/org/repo/pull/1"),
+            _make_session("sessions/s2", state=models.SessionState.COMPLETED,
+                          pr_url="https://github.com/org/repo/pull/2"),
+        ]
+        result = poll_batch(client, ["sessions/s1", "sessions/s2"])
+        assert isinstance(result, BatchPollResult)
+        assert result.ready is True
+        assert len(result.pr_urls) == 2
+        assert len(result.pending) == 0
+        assert len(result.failed) == 0
+
+    def test_not_ready_when_any_in_progress(self) -> None:
+        client = MagicMock()
+        client.sessions.get.side_effect = [
+            _make_session("sessions/s1", state=models.SessionState.COMPLETED,
+                          pr_url="https://github.com/org/repo/pull/1"),
+            _make_session("sessions/s2", state=models.SessionState.IN_PROGRESS),
+        ]
+        result = poll_batch(client, ["sessions/s1", "sessions/s2"])
+        assert result.ready is False
+        assert "sessions/s2" in result.pending
+
+    def test_ready_when_all_failed(self) -> None:
+        client = MagicMock()
+        client.sessions.get.side_effect = [
+            _make_session("sessions/s1", state=models.SessionState.FAILED),
+        ]
+        result = poll_batch(client, ["sessions/s1"])
+        assert result.ready is True
+        assert "sessions/s1" in result.failed
+        assert len(result.pr_urls) == 0
+
+    def test_failed_includes_api_errors(self) -> None:
+        client = MagicMock()
+        client.sessions.get.side_effect = [
+            RuntimeError("network error"),
+            _make_session("sessions/s2", state=models.SessionState.COMPLETED,
+                          pr_url="https://github.com/org/repo/pull/2"),
+        ]
+        result = poll_batch(client, ["sessions/s1", "sessions/s2"])
+        assert result.ready is True
+        assert "sessions/s1" in result.failed
+        assert len(result.pr_urls) == 1
+
+    def test_pr_urls_preserve_input_order(self) -> None:
+        client = MagicMock()
+        client.sessions.get.side_effect = [
+            _make_session("sessions/s1", state=models.SessionState.COMPLETED,
+                          pr_url="https://github.com/org/repo/pull/1"),
+            _make_session("sessions/s2", state=models.SessionState.COMPLETED,
+                          pr_url="https://github.com/org/repo/pull/2"),
+        ]
+        result = poll_batch(client, ["sessions/s1", "sessions/s2"])
+        assert result.pr_urls[0] == "https://github.com/org/repo/pull/1"
+        assert result.pr_urls[1] == "https://github.com/org/repo/pull/2"
+
+    def test_statuses_included_in_result(self) -> None:
+        client = MagicMock()
+        client.sessions.get.return_value = _make_session(
+            state=models.SessionState.IN_PROGRESS
+        )
+        result = poll_batch(client, ["sessions/s1"])
+        assert len(result.statuses) == 1
+        assert result.statuses[0].session_id == "sessions/s1"
