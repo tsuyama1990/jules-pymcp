@@ -1,206 +1,265 @@
-# Jules MCP Server (jules-mcp)
+# jules-pymcp
 
-An MCP (Model Context Protocol) server that exposes Google Jules Agent operations via FastMCP.
+MCP server that lets Claude orchestrate Google Jules — with enforced quality gates,
+concurrent session management, and a complete fan-out/fan-in PR merge loop.
 
-This server lets MCP-compatible clients (and Python code) list Jules sources, create and manage
-sessions, and inspect activities using the official jules-agent-sdk.
-
-- Server framework: FastMCP
+- Language: Python 3.13+
+- Framework: FastMCP
 - SDK: jules-agent-sdk
-- Python: 3.13+
 - License: Apache-2.0
+- Fork of: [CodeAgentBridge/jules-mcp-server](https://github.com/CodeAgentBridge/jules-mcp-server)
 
-## Features
+---
 
-Tools exposed via the MCP server (grouped by area):
+## What this does
 
-- Sources
-  - get_source(source_id)
-  - list_sources(filter_str=None, page_size=None, page_token=None)
-  - get_all_sources(filter_str=None)
-- Sessions
-  - create_session(prompt, source, starting_branch=None, title=None, require_plan_approval=False)
-  - get_session(session_id)
-  - list_sessions(page_size=None, page_token=None)
-  - approve_session_plan(session_id)
-  - send_session_message(session_id, prompt)
-  - wait_for_session_completion(session_id, poll_interval=5, timeout=600)
-- Activities
-  - get_activity(session_id, activity_id)
-  - list_activities(session_id, page_size=None, page_token=None)
-  - list_all_activities(session_id)
+Claude calls MCP tools in this server to:
 
-See jules_mcp/jules_mcp.py for signatures and inline docstrings.
+1. Decompose a large project into Jules-sized sub-tasks
+2. Write `AGENTS.md` + integration tests, commit and push them to GitHub
+3. Fire all Jules sessions concurrently (each gets quality rules + acceptance criteria injected)
+4. Poll every 5 minutes until all PRs are open
+5. Merge PRs one by one, gated by integration tests, resolving conflicts via Jules
 
-## Installation
+Jules does the implementation. Claude does the reasoning.
 
-Option A — from a local checkout:
+---
 
-```bash
-# from the repository root
-pip install -e .
+## Architecture
+
+```
+Claude (reasoning)
+  │
+  └── MCP tools (this server)
+        │
+        ├── Jules API  ──► Jules sessions (concurrent)
+        │                       │
+        │                  SessionWatcher daemon (per session)
+        │                       └── auto-sends self-critic when PR opens
+        │
+        └── gh CLI  ──► GitHub (AGENTS.md push, PR status, merge)
 ```
 
-Option B — using uv (recommended during development):
+**Quality enforcement is deterministic, not stochastic.**
+Every Jules prompt is wrapped with mandatory rules before the API call —
+Jules cannot receive a task without them.
+
+---
+
+## Setup
+
+### 1. Prerequisites
+
+- Python 3.13+
+- [uv](https://docs.astral.sh/uv/) (recommended) or pip
+- [gh CLI](https://cli.github.com/) authenticated (`gh auth login`)
+- Jules API key from [Google Jules](https://jules.google.com/)
+
+### 2. Install
 
 ```bash
-# from the repository root
+git clone https://github.com/tsuyama1990/jules-pymcp
+cd jules-pymcp
 uv sync
 ```
 
-The project targets Python 3.13+.
-
-## Configuration
-
-Set your Jules API key via environment variable:
-
-- Windows PowerShell
-  ```powershell
-  $Env:JULES_API_KEY = "<your_api_key_here>"
-  ```
-- Unix shells (bash/zsh)
-  ```bash
-  export JULES_API_KEY="<your_api_key_here>"
-  ```
-
-If you do not provide an argument to jules(), the SDK reads JULES_API_KEY automatically.
-
-## Running the MCP server
-
-There are two common ways to run the server.
-
-1) Programmatic run (in-process) using FastMCP Client — useful for testing or embedding:
-
-```python
-import asyncio
-from fastmcp import Client
-from jules_mcp import mcp
-
-async def main():
-    async with Client(mcp) as client:
-        # Example: list all sources (auto-paginated)
-        result = await client.call_tool("get_all_sources")
-        print(result)
-
-asyncio.run(main())
-```
-
-2) As a standalone MCP server executable for external MCP clients:
-
-- Using uv and FastMCP directly
-  ```bash
-  uv run fastmcp run jules_mcp/jules_mcp.py:mcp
-  ```
-  This starts the MCP server over stdio.
-
-- Using the provided configuration files
-  - MCP.json: a sample command configuration for MCP-aware hosts.
-  - fastmcp.json: FastMCP runtime/environment configuration.
-
-Adjust paths in MCP.json if you use a different checkout location.
-
-You can also run via the module entry point:
+### 3. Environment variables
 
 ```bash
-python -m jules_mcp
+export JULES_API_KEY="your-jules-api-key"
 ```
 
-This calls start_mcp() which invokes FastMCP.run() using the "mcp" instance defined in the package.
+Optional — override the default quality rules injected into every Jules prompt:
 
-## Usage notes and examples
-
-- Listing and filtering sources
-```python
-import asyncio
-from fastmcp import Client
-from jules_mcp import mcp
-
-async def main():
-    async with Client(mcp) as client:
-        # Filter syntax follows AIP-160 filtering rules supported by Jules
-        res = await client.call_tool(
-            "list_sources",
-            {"filter_str": "name=sources/source1 OR name=sources/source2", "page_size": 10}
-        )
-        print(res)
-
-asyncio.run(main())
+```bash
+export JULES_QUALITY_RULES='["Rule A", "Rule B"]'   # JSON string array
 ```
 
-- Creating a session and waiting for completion
-```python
-import asyncio
-from fastmcp import Client
-from jules_mcp import mcp
+### 4. MCP configuration (Claude Code / claude.ai)
 
-async def run_session():
-    async with Client(mcp) as client:
-        session = await client.call_tool(
-            "create_session",
-            {
-                "prompt": "Analyze the repository and propose improvements",
-                "source": "sources/abc123",
-                "require_plan_approval": True,
-            },
-        )
+Add to your `~/.claude/settings.json` (or equivalent MCP config):
 
-        # Optionally approve plan
-        await client.call_tool("approve_session_plan", {"session_id": session["name"]})
-
-        # Wait for completion
-        final = await client.call_tool(
-            "wait_for_session_completion",
-            {"session_id": session["name"], "poll_interval": 5, "timeout": 600}
-        )
-        print(final)
-
-asyncio.run(run_session())
+```json
+{
+  "mcpServers": {
+    "jules": {
+      "command": "uv",
+      "args": [
+        "run",
+        "--directory", "/path/to/jules-pymcp",
+        "python", "-m", "jules_mcp"
+      ],
+      "env": {
+        "JULES_API_KEY": "your-jules-api-key"
+      }
+    }
+  }
+}
 ```
 
-- Inspecting activities
-```python
-import asyncio
-from fastmcp import Client
-from jules_mcp import mcp
+---
 
-async def list_acts(session_id: str):
-    async with Client(mcp) as client:
-        acts = await client.call_tool("list_all_activities", {"session_id": session_id})
-        for a in acts:
-            print(a)
+## Workflow
 
-asyncio.run(list_acts("sessions/abc123"))
+### Full fan-out/fan-in orchestration
+
 ```
+Phase 0 — Contracts (Claude)
+  Write integration tests defining interfaces between sub-projects.
+  These gate every merge in Phase 3.
+
+Phase 1 — Prep + Fire
+  Call: start_jules_batch(repo_path, tasks, sub_projects, merge_order)
+    ├── writes AGENTS.md to local repo
+    ├── commits + pushes to GitHub  (Jules clones THIS)
+    └── fires all Jules sessions concurrently
+        └── each session: quality rules + acceptance criteria injected into prompt
+
+Phase 2 — Poll (every 5 minutes)
+  Call: poll_batch(session_ids)
+    ready=False  → reschedule in 5 min (Jules typically finishes in ~15 min)
+    ready=True   → proceed to Phase 3
+
+  Background (automatic, no action needed):
+    SessionWatcher daemon per session
+    └── detects PR open → auto-sends self-critic review to Jules
+        (DRY, SOLID, BONSAI cleanup, coverage, mutation testing)
+
+Phase 3 — Merge loop (Claude)
+  For each pr_url in merge_order:
+    get_pr_status(pr_url)
+      CI green + MERGEABLE  → merge_pr(pr_url)
+      CI red               → send_session_message(session, "fix CI: <log>") → reschedule
+      CONFLICTING          → get_pr_diff(pr_url)
+                           → send_session_message(session, "resolve:\n<diff>") → reschedule
+    run integration tests  → gate before next merge
+```
+
+### Scheduled wakeup (Claude Code Remote)
+
+Jules takes ~15 minutes. After firing `start_jules_batch`, Claude schedules
+a wakeup every 5 minutes (within the 5-min prompt cache TTL — no cold-start cost).
+When `poll_batch` returns `ready=True`, Claude proceeds to the merge loop.
+
+---
+
+## Tool reference
+
+### Orchestration (use these)
+
+| Tool | When to call |
+|------|-------------|
+| `start_jules_batch` | **Primary entry point.** Writes AGENTS.md, commits+pushes, fires Jules concurrently. |
+| `poll_batch` | Call every 5 min after `start_jules_batch`. Returns `ready=True` + `pr_urls` when done. |
+| `create_agents_md` | Low-level. Use only if you need to review AGENTS.md before committing. |
+
+### GitHub PR operations
+
+| Tool | When to call |
+|------|-------------|
+| `get_pr_status` | Before merging. Returns `ci_passing`, `mergeable`, CI summary. |
+| `merge_pr` | After `get_pr_status` confirms CI green + MERGEABLE. Default method: squash. |
+| `get_pr_diff` | When `get_pr_status` shows `CONFLICTING`. Pass diff to Jules via `send_session_message`. |
+
+### Jules sessions (low-level)
+
+| Tool | Description |
+|------|-------------|
+| `create_session` | Single Jules session. Quality rules + self-critic auto-applied. |
+| `create_batch_sessions` | Low-level batch fire. Prefer `start_jules_batch`. |
+| `send_session_message` | Send a follow-up message to a running Jules session. |
+| `get_session` / `list_sessions` | Inspect session state. |
+| `approve_session_plan` | Approve Jules' plan when `require_plan_approval=True`. |
+| `wait_for_session_completion` | Blocking poll for a single session. |
+
+### Jules activities (low-level)
+
+`get_activity`, `list_activities`, `list_all_activities` — inspect Jules' step-by-step activity log.
+
+### Jules sources
+
+`get_source`, `list_sources`, `get_all_sources` — list GitHub repos connected to Jules.
+
+---
+
+## Quality enforcement
+
+Every Jules prompt is deterministically wrapped with:
+
+1. **Mandatory quality rules** — ruff ALL, mypy strict, bandit, pytest ≥90% coverage
+2. **Development order** — Blueprint → CDD (Pydantic contracts) → TDD → Implementation
+3. **Acceptance criteria** — per-task checklist Jules must check off before opening the PR
+4. **Self-critic review** — auto-sent when PR opens (DRY, all 5 SOLID principles, BONSAI cleanup,
+   static checks, mutation testing ≥80%)
+
+Jules cannot skip these — they are injected by `build_enforced_prompt()` before every API call.
+
+**AGENTS.md** is also written to the repo before Jules starts, giving Jules stochastic context
+about sub-project structure, integration test paths, and merge order.
+
+---
+
+## CI/CD
+
+GitHub Actions (`.github/workflows/ci.yml`) runs the `quality-gate` job on every PR:
+
+```
+ruff check --select ALL
+ruff format --check
+mypy --strict jules_mcp/
+bandit -c pyproject.toml -r jules_mcp/
+pytest  # --cov-fail-under=90, --cov-branch enforced via pyproject.toml
+```
+
+**Add `quality-gate` as a required status check in GitHub branch protection rules**
+to block Jules PRs that fail quality gates from merging.
+
+---
 
 ## Development
 
-- Create a virtual environment and install dev dependencies
-  ```bash
-  uv sync
-  # or: pip install -e .[dev]
-  ```
+```bash
+# Install with dev deps
+uv sync
 
-- Run tests (note: some tools may reach the Jules API and require JULES_API_KEY)
-  ```bash
-  uv run pytest -q
-  ```
+# Run tests (118 tests, ≥90% branch+line coverage)
+uv run pytest
 
-- Linting/formatting: follow your preferred tools; this repo does not include linters by default.
+# Lint
+uv run ruff check .
+uv run ruff format .
 
-## Project metadata
+# Type check
+uv run mypy jules_mcp/
 
-- Package name: jules-mcp
-- Version: 0.1.0
-- Entry points:
-  - Python module: python -m jules_mcp
-  - FastMCP source: jules_mcp/jules_mcp.py:mcp
+# Security scan
+uv run bandit -c pyproject.toml -r jules_mcp/
+
+# Mutation testing (optional, slow)
+uv run mutmut run
+```
+
+### Pre-commit hooks
+
+```bash
+uv run pre-commit install   # installs ruff + mypy + bandit hooks
+```
+
+### Module map
+
+```
+jules_mcp/
+  jules_mcp.py        MCP tool definitions (FastMCP server)
+  batch.py            Concurrent session creation + polling (BatchTaskSpec, poll_batch)
+  github_ops.py       gh/git CLI wrappers (PR status, merge, diff, commit+push)
+  agents_md.py        AGENTS.md generation
+  prompt.py           build_enforced_prompt — injects quality rules + acceptance criteria
+  self_critic.py      Self-critic review template (DRY, SOLID, BONSAI, static checks)
+  session_watcher.py  Daemon thread — polls Jules, auto-sends self-critic on PR open
+```
+
+---
 
 ## License
 
-Apache License 2.0. See the LICENSE file for details.
-
-## Acknowledgements
-
-- FastMCP — https://gofastmcp.com/
-- Model Context Protocol — https://modelcontextprotocol.io/
-- jules-agent-sdk — unofficial/official SDK used by this server
+Apache License 2.0. See [LICENSE](LICENSE).
