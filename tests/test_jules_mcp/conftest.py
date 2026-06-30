@@ -17,11 +17,11 @@ from unittest.mock import MagicMock
 import pytest
 import pytest_asyncio
 from fastmcp import Client
-from pytest import MonkeyPatch
 
 # This is the definitive patch. It must be applied at module-load time,
 # before any test files (and thus the `jules_mcp` module) are imported.
 from fastmcp.tools.tool import ParsedFunction
+from pytest import MonkeyPatch
 
 # Store the original classmethod's underlying function.
 original_from_function = ParsedFunction.from_function.__func__

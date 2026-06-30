@@ -12,6 +12,8 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
+"""Entry point for running the Jules MCP server as a module."""
+
 from jules_mcp.jules_mcp import start_mcp
 
 if __name__ == "__main__":

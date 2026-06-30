@@ -27,9 +27,77 @@ where = ["."]
 dev = [
     "pytest>=8.4.2",
     "pytest-asyncio>=1.2.0",
+    "pytest-cov>=6.0.0",
+    "mutmut>=2.5.1",
     "types-requests>=2.32.4.20250913",
     "ruff>=0.13.3",
     "mypy>=1.18.2",
+    "bandit[toml]>=1.8.0",
+]
+
+[tool.pytest.ini_options]
+addopts = "--tb=short --cov=jules_mcp --cov-branch --cov-report=term-missing --cov-fail-under=90"
+
+[tool.coverage.run]
+branch = true
+source = ["jules_mcp"]
+omit = ["jules_mcp/__main__.py"]
+
+[tool.coverage.report]
+fail_under = 90
+show_missing = true
+skip_covered = false
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+]
+
+[tool.bandit]
+targets = ["jules_mcp"]
+severity = "medium"
+confidence = "medium"
+skips = []
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = [
+    "COM812",  # conflicts with ruff formatter
+    "ISC001",  # conflicts with ruff formatter
+    "D203",    # conflicts with D211 (one-blank-line-before-class)
+    "D213",    # conflicts with D212 (multi-line-summary-second-line)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = [
+    "S101",                  # assert is fine in tests
+    "D",                     # docstrings on test methods add noise
+    "ANN",                   # type annotations on test methods are verbose
+    "PLR2004",               # magic values in assertions are readable
+    "PT013",                 # `from pytest import X` is fine in tests
+    "PT019",                 # @patch passes mocks as params — usefixtures not applicable
+    "TC002",                 # TYPE_CHECKING blocks unnecessary in tests
+    "SIM102",                # nested ifs are fine in test helpers
+    "PLC0415",               # lazy imports intentional in fixtures/patches
+    "TRY003", "EM101",       # exception literals in tests are fine
+    "ARG001",                # unused args in test helpers (e.g. failing_send)
+]
+# Original upstream code — style issues acknowledged, not rewriting
+"jules_mcp/batch.py" = [
+    "FBT001", "FBT002",  # boolean args are idiomatic for internal worker functions
+]
+"jules_mcp/jules_mcp.py" = [
+    "D100", "D101", "D103", "D413",  # docstring formatting
+    "PLW0603",                       # global statement (singleton pattern)
+    "TRY003", "EM101",               # exception message style
+    "E501",                          # long lines in descriptions
+    "RET504",                        # unnecessary assignments
+    "ANN",                           # missing annotations on upstream functions
+    "PLR0913",                       # too many arguments (MCP tools can have many params)
+    "FBT001", "FBT002",              # boolean args are idiomatic for MCP tool flags
 ]
 
 [tool.mypy]

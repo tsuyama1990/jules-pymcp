@@ -2,36 +2,51 @@ name: CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
+
+# Cancel in-progress runs for the same PR/branch so stale runs don't block merges
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  build:
+  quality-gate:
+    name: Quality Gate (ruff + mypy + pytest)
     runs-on: ubuntu-latest
+
     steps:
-    - uses: actions/checkout@v5
-    - name: "Set up Python"
-      uses: actions/setup-python@v5
-      with:
-        python-version-file: "pyproject.toml"
+      - uses: actions/checkout@v4
 
-    - name: Install uv
-      uses: astral-sh/setup-uv@v6
-      with:
-        enable-cache: true
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
 
-    - name: Install the project
-      run: uv sync --locked --all-extras --dev
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version-file: pyproject.toml
 
-    - name: Lint with ruff
-      run: uv run ruff check .
+      - name: Install dependencies
+        run: uv sync --locked --all-extras --dev
 
-    - name: Format with ruff
-      run: uv run ruff format --check .
+      # --- Linting (ruff check with ALL rules as configured in pyproject.toml) ---
+      - name: Lint — ruff check
+        run: uv run ruff check .
 
-    - name: Type check with mypy
-      run: uv run mypy .
+      - name: Lint — ruff format
+        run: uv run ruff format --check .
 
-    - name: Test with pytest
-      run: uv run -m pytest
+      # --- Type checking (strict, matches pyproject.toml [tool.mypy]) ---
+      - name: Type check — mypy --strict
+        run: uv run mypy --strict .
+
+      # --- Security scanning ---
+      - name: Security — bandit (medium severity + confidence)
+        run: uv run bandit -c pyproject.toml -r jules_mcp/
+
+      # --- Tests with coverage gate (line + branch ≥ 90 %) ---
+      - name: Test — pytest (line + branch coverage ≥ 90 %)
+        run: uv run pytest

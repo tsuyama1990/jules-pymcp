@@ -12,7 +12,7 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 from fastmcp import Client
@@ -82,28 +82,33 @@ class TestSessions:
         }
 
     async def test_create_session(
-        self, client: Client, mock_jules_client: MagicMock, mock_session_dict: dict
+        self, client: Client, mock_jules_client: MagicMock
     ):
-        mock_jules_client.sessions.create.return_value = mock_session_dict
-
-        result = await client.call_tool(
-            "create_session",
-            {
-                "prompt": "Test prompt",
-                "source": "sources/test-source",
-                "title": "Test Session",
-            },
+        from jules_agent_sdk import models as sdk_models
+        mock_session = sdk_models.Session(
+            name="sessions/test-session",
+            title="Test Session",
+            prompt="Test prompt",
+            source_context=sdk_models.SourceContext(source="sources/test-source"),
+            state=sdk_models.SessionState.IN_PROGRESS,
         )
+        mock_jules_client.sessions.create.return_value = mock_session
+
+        with patch("jules_mcp.jules_mcp.watch_session_for_pr"):
+            result = await client.call_tool(
+                "create_session",
+                {
+                    "prompt": "Test prompt",
+                    "source": "sources/test-source",
+                    "title": "Test Session",
+                },
+            )
 
         assert result.structured_content["name"] == "sessions/test-session"
         assert result.structured_content["title"] == "Test Session"
-        mock_jules_client.sessions.create.assert_called_once_with(
-            prompt="Test prompt",
-            source="sources/test-source",
-            starting_branch=None,
-            title="Test Session",
-            require_plan_approval=False,
-        )
+        called_prompt = mock_jules_client.sessions.create.call_args.kwargs["prompt"]
+        assert "Mandatory Quality Rules" in called_prompt
+        assert "Test prompt" in called_prompt
 
     async def test_get_session(
         self, client: Client, mock_jules_client: MagicMock, mock_session_dict: dict

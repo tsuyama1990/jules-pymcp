@@ -19,6 +19,16 @@ from fastmcp import FastMCP
 from jules_agent_sdk import JulesClient, models
 from mcp.types import ToolAnnotations
 
+from jules_mcp.batch import (
+    BatchSessionResult,
+    BatchSessionStatus,
+    BatchTaskSpec,
+    create_batch,
+    get_batch_status,
+)
+from jules_mcp.prompt import build_enforced_prompt
+from jules_mcp.session_watcher import watch_session_for_pr
+
 version: Final[str] = "0.1.3"
 
 _jules_client: JulesClient | None = None
@@ -129,6 +139,7 @@ def create_session(
     starting_branch: str | None = None,
     title: str | None = None,
     require_plan_approval: bool = False,
+    auto_self_review: bool = True,
 ) -> models.Session:
     """Create a new session.
 
@@ -138,14 +149,19 @@ def create_session(
         starting_branch: Optional starting branch for GitHub repos.
         title: Optional human-friendly title for the session.
         require_plan_approval: If True, the plan requires explicit approval before execution.
+        auto_self_review: If True (default), sends a strict self-critic review to Jules
+            automatically once the PR is opened.
     """
-    session = jules().sessions.create(
-        prompt=prompt,
+    client = jules()
+    session = client.sessions.create(
+        prompt=build_enforced_prompt(prompt),
         source=source,
         starting_branch=starting_branch,
         title=title,
         require_plan_approval=require_plan_approval,
     )
+    if auto_self_review and session.name:
+        watch_session_for_pr(client, session.name)
     return session
 
 
@@ -303,6 +319,60 @@ def list_activities(
 def list_all_activities(session_id: str) -> list[models.Activity]:
     """List all activities for a session (auto-pagination)."""
     return jules().activities.list_all(session_id)
+
+
+# -------------------- Batch orchestration --------------------
+@mcp.tool(
+    name="create_batch_sessions",
+    title="Create batch sessions (concurrent)",
+    description=(
+        "Fire multiple Jules coding sessions concurrently. "
+        "Each task gets quality rules injected and a self-critic review scheduled. "
+        "Returns one result per task with session ID and initial state. "
+        "Use wait_for_batch to monitor progress, then merge PRs one by one."
+    ),
+    tags={"batch"},
+)
+def create_batch_sessions(
+    tasks: list[BatchTaskSpec],
+    auto_self_review: bool = True,
+) -> list[BatchSessionResult]:
+    """Fire multiple Jules sessions concurrently.
+
+    Args:
+        tasks: List of sub-tasks to execute in parallel. Each must have a unique label.
+        auto_self_review: If True (default), sends self-critic review to each session
+            automatically once its PR is opened.
+
+    Returns:
+        One result per task with session_id, initial state, or error if creation failed.
+
+    """
+    return create_batch(jules(), tasks, auto_self_review)
+
+
+@mcp.tool(
+    name="wait_for_batch",
+    title="Get batch session status",
+    description=(
+        "Fetch the current status of all sessions in a batch — non-blocking snapshot. "
+        "Returns state and PR URL for each session. "
+        "Call repeatedly to monitor progress. "
+        "When a session shows COMPLETED with a pr_url, it is ready to review and merge."
+    ),
+    tags={"batch"},
+)
+def wait_for_batch(session_ids: list[str]) -> list[BatchSessionStatus]:
+    """Fetch current status of multiple sessions concurrently.
+
+    Args:
+        session_ids: List of session IDs (or names) returned by create_batch_sessions.
+
+    Returns:
+        One status entry per session with current state and PR URL if available.
+
+    """
+    return get_batch_status(jules(), session_ids)
 
 
 def start_mcp() -> None:

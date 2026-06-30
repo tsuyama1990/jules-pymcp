@@ -12,6 +12,8 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
+"""Jules MCP Server — exposes Google Jules operations via FastMCP."""
+
 from jules_mcp.jules_mcp import mcp, start_mcp, version
 
-__all__ = ["version", "mcp", "start_mcp"]
+__all__ = ["mcp", "start_mcp", "version"]
