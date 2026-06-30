@@ -19,6 +19,8 @@ from fastmcp import FastMCP
 from jules_agent_sdk import JulesClient, models
 from mcp.types import ToolAnnotations
 
+from jules_mcp import agents_md as _agents_md
+from jules_mcp import github_ops as _github_ops
 from jules_mcp.batch import (
     BatchSessionResult,
     BatchSessionStatus,
@@ -373,6 +375,105 @@ def wait_for_batch(session_ids: list[str]) -> list[BatchSessionStatus]:
 
     """
     return get_batch_status(jules(), session_ids)
+
+
+# -------------------- GitHub operations --------------------
+@mcp.tool(
+    name="get_pr_status",
+    title="Get PR status",
+    description=(
+        "Check the CI status and mergeability of a GitHub pull request. "
+        "Returns mergeable flag, merge state, and whether all CI checks are passing. "
+        "Use this before merge_pr to confirm the PR is ready."
+    ),
+    tags={"github"},
+    annotations=ToolAnnotations(readOnlyHint=True, idempotentHint=True, destructiveHint=False),
+)
+def get_pr_status(pr_url: str) -> dict[str, Any]:
+    """Check CI status and mergeability of a GitHub pull request.
+
+    Args:
+        pr_url: Full GitHub PR URL, e.g. 'https://github.com/org/repo/pull/42'.
+    """
+    return _github_ops.get_pr_status(pr_url).model_dump()
+
+
+@mcp.tool(
+    name="merge_pr",
+    title="Merge pull request",
+    description=(
+        "Merge a GitHub pull request. Always call get_pr_status first to confirm "
+        "CI is green and the PR is not conflicting before merging. "
+        "Deletes the source branch after merge."
+    ),
+    tags={"github"},
+    annotations=ToolAnnotations(readOnlyHint=False, idempotentHint=False, destructiveHint=False),
+)
+def merge_pr(pr_url: str, method: str = "squash") -> dict[str, Any]:
+    """Merge a GitHub pull request.
+
+    Args:
+        pr_url: Full GitHub PR URL, e.g. 'https://github.com/org/repo/pull/42'.
+        method: Merge method — 'squash' (default), 'merge', or 'rebase'.
+    """
+    return _github_ops.merge_pr(pr_url, method=method).model_dump()
+
+
+@mcp.tool(
+    name="get_pr_diff",
+    title="Get PR diff",
+    description=(
+        "Return the full unified diff of a GitHub pull request. "
+        "Use this when get_pr_status reports conflicts: pass the diff to Jules via "
+        "send_session_message so it can rebase and resolve conflicts."
+    ),
+    tags={"github"},
+    annotations=ToolAnnotations(readOnlyHint=True, idempotentHint=True, destructiveHint=False),
+)
+def get_pr_diff(pr_url: str) -> str:
+    """Return the full unified diff of a GitHub pull request.
+
+    Args:
+        pr_url: Full GitHub PR URL, e.g. 'https://github.com/org/repo/pull/42'.
+    """
+    return _github_ops.get_pr_diff(pr_url)
+
+
+@mcp.tool(
+    name="create_agents_md",
+    title="Create AGENTS.md",
+    description=(
+        "Generate and write AGENTS.md to a local repository. "
+        "Call this before firing any Jules batch so Jules understands the project "
+        "structure, integration test contracts, merge order, and quality rules. "
+        "Returns the written content for review."
+    ),
+    tags={"github"},
+    annotations=ToolAnnotations(readOnlyHint=False, idempotentHint=True, destructiveHint=False),
+)
+def create_agents_md(
+    repo_path: str,
+    sub_projects: list[str],
+    integration_test_path: str = "tests/integration",
+    merge_order: list[str] | None = None,
+    extra_rules: list[str] | None = None,
+) -> str:
+    """Generate and write AGENTS.md to a local repository.
+
+    Args:
+        repo_path: Absolute path to the local repository root.
+        sub_projects: List of sub-project names or paths Jules will work on.
+        integration_test_path: Path to integration tests (default: 'tests/integration').
+        merge_order: Ordered list of sub-projects for merge sequencing, leaf-first.
+        extra_rules: Additional project-specific rules to append.
+    """
+    return _agents_md.write_agents_md(
+        repo_path=repo_path,
+        sub_projects=sub_projects,
+        integration_test_path=integration_test_path,
+        merge_order=merge_order,
+        extra_rules=extra_rules,
+    )
 
 
 def start_mcp() -> None:
