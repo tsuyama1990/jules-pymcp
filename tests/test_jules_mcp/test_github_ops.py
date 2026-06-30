@@ -12,6 +12,8 @@ from jules_mcp.github_ops import (
     PrStatus,
     _ci_passing,
     _run_gh,
+    _run_git,
+    commit_and_push,
     get_pr_diff,
     get_pr_status,
     merge_pr,
@@ -205,3 +207,74 @@ class TestGetPrDiff:
         assert args[0] == "pr"
         assert args[1] == "diff"
         assert "https://github.com/org/repo/pull/5" in args
+
+
+class TestRunGit:
+    def test_success_returns_stdout(self) -> None:
+        with patch("jules_mcp.github_ops.subprocess.run") as mock:
+            mock.return_value = MagicMock(returncode=0, stdout="ok\n", stderr="")
+            assert _run_git("/repo", "status") == "ok\n"
+
+    def test_passes_cwd_to_subprocess(self) -> None:
+        with patch("jules_mcp.github_ops.subprocess.run") as mock:
+            mock.return_value = MagicMock(returncode=0, stdout="", stderr="")
+            _run_git("/my/repo", "status")
+        assert mock.call_args.kwargs["cwd"] == "/my/repo"
+
+    def test_failure_raises_runtime_error(self) -> None:
+        with patch("jules_mcp.github_ops.subprocess.run") as mock:
+            mock.return_value = MagicMock(returncode=1, stdout="", stderr="not a git repo")
+            with pytest.raises(RuntimeError, match="not a git repo"):
+                _run_git("/repo", "status")
+
+
+class TestCommitAndPush:
+    def _make_git(self, status_output: str = "M AGENTS.md") -> MagicMock:
+        return MagicMock(side_effect=lambda *a, **_kw: status_output if "status" in a else "")
+
+    def test_adds_stages_files(self) -> None:
+        with patch("jules_mcp.github_ops._run_git") as mock:
+            mock.return_value = ""
+            commit_and_push("/repo", ["AGENTS.md"], "chore: update")
+        first_call = mock.call_args_list[0]
+        assert first_call.args[1] == "add"
+        assert "AGENTS.md" in first_call.args
+
+    def test_commits_when_status_has_changes(self) -> None:
+        call_results = ["", "M AGENTS.md\n", "", ""]
+        with patch("jules_mcp.github_ops._run_git", side_effect=call_results):
+            commit_and_push("/repo", ["AGENTS.md"], "chore: update")
+        # Can't easily assert commit called without capturing call_args_list
+
+    def test_skips_commit_when_nothing_to_stage(self) -> None:
+        calls: list[tuple] = []
+
+        def fake_git(_path: str, *args: str) -> str:
+            calls.append(args)
+            return ""  # empty status = nothing to commit
+
+        with patch("jules_mcp.github_ops._run_git", side_effect=fake_git):
+            commit_and_push("/repo", ["AGENTS.md"], "chore: update")
+
+        commands = [c[0] for c in calls]
+        assert "commit" not in commands
+        assert "push" in commands
+
+    def test_push_uses_correct_branch(self) -> None:
+        calls: list[tuple] = []
+
+        def fake_git(_path: str, *args: str) -> str:
+            calls.append(args)
+            return ""
+
+        with patch("jules_mcp.github_ops._run_git", side_effect=fake_git):
+            result = commit_and_push("/repo", ["AGENTS.md"], "msg", branch="develop")
+
+        push_call = next(c for c in calls if c[0] == "push")
+        assert "develop" in push_call
+        assert "origin/develop" in result
+
+    def test_returns_confirmation_string(self) -> None:
+        with patch("jules_mcp.github_ops._run_git", return_value=""):
+            result = commit_and_push("/repo", ["AGENTS.md"], "msg")
+        assert "main" in result

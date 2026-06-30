@@ -117,3 +117,32 @@ def merge_pr(pr_url: str, method: str = "squash") -> MergeResult:
 def get_pr_diff(pr_url: str) -> str:
     """Return the full unified diff of a pull request."""
     return _run_gh("pr", "diff", pr_url)
+
+
+def _run_git(repo_path: str, *args: str) -> str:
+    """Execute a git command in repo_path and return stdout."""
+    result = subprocess.run(
+        ["git", *args],
+        cwd=repo_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip() or f"git exited {result.returncode}")
+    return result.stdout
+
+
+def commit_and_push(
+    repo_path: str,
+    files: list[str],
+    message: str,
+    branch: str = "main",
+) -> str:
+    """Stage files, commit (if anything changed), and push to origin/branch."""
+    _run_git(repo_path, "add", *files)
+    status = _run_git(repo_path, "status", "--porcelain")
+    if status.strip():
+        _run_git(repo_path, "commit", "-m", message)
+    _run_git(repo_path, "push", "origin", branch)
+    return f"pushed to origin/{branch}"

@@ -382,6 +382,68 @@ def poll_batch_tool(session_ids: list[str]) -> BatchPollResult:
     return poll_batch(jules(), session_ids)
 
 
+# -------------------- Top-level orchestration entry point --------------------
+@mcp.tool(
+    name="start_jules_batch",
+    title="Start Jules batch (use this, not create_batch_sessions)",
+    description=(
+        "Single entry point for launching a Jules batch. "
+        "Enforces the full prep sequence in order: "
+        "(1) writes AGENTS.md to the local repo, "
+        "(2) commits and pushes it to GitHub so Jules sees it on clone, "
+        "(3) fires all Jules sessions concurrently with quality rules injected. "
+        "Returns session_ids — pass them to poll_batch every 5 minutes."
+    ),
+    tags={"batch"},
+)
+def start_jules_batch(
+    repo_path: str,
+    tasks: list[BatchTaskSpec],
+    sub_projects: list[str],
+    integration_test_path: str = "tests/integration",
+    merge_order: list[str] | None = None,
+    extra_rules: list[str] | None = None,
+    branch: str = "main",
+    auto_self_review: bool = True,
+) -> dict[str, Any]:
+    """Write AGENTS.md, commit+push, then fire all Jules sessions concurrently.
+
+    Args:
+        repo_path: Absolute path to the local repository root.
+        tasks: Sub-tasks to execute in parallel. Each needs a unique label.
+        sub_projects: Sub-project names written into AGENTS.md.
+        integration_test_path: Integration test path for AGENTS.md (default: tests/integration).
+        merge_order: Merge order for AGENTS.md, leaf-first.
+        extra_rules: Additional project-specific rules for AGENTS.md.
+        branch: Branch to push AGENTS.md to (default: main).
+        auto_self_review: Auto-send self-critic when each PR opens (default: True).
+
+    Returns:
+        session_ids: Pass to poll_batch every 5 min until ready=True.
+        results: Per-task creation result with initial state.
+        pushed_to: Branch AGENTS.md was pushed to.
+    """
+    _agents_md.write_agents_md(
+        repo_path=repo_path,
+        sub_projects=sub_projects,
+        integration_test_path=integration_test_path,
+        merge_order=merge_order,
+        extra_rules=extra_rules,
+    )
+    _github_ops.commit_and_push(
+        repo_path=repo_path,
+        files=["AGENTS.md"],
+        message="chore: update AGENTS.md for Jules batch",
+        branch=branch,
+    )
+    results = create_batch(jules(), tasks, auto_self_review)
+    return {
+        "pushed_to": branch,
+        "session_ids": [r.session_id for r in results if r.session_id],
+        "results": [r.model_dump() for r in results],
+    }
+
+
 # -------------------- GitHub operations --------------------
 @mcp.tool(
     name="get_pr_status",
