@@ -109,10 +109,14 @@ contract exactly.
 point and confirm it reaches the correct implementation.
 
 ### Phase 4 — Finishing (Documentation Sync)
-- [ ] Update README as the single source of truth: setup steps, dependencies, \
-and architecture must accurately reflect the current state.
+- [ ] **Update README.md** as the single source of truth. Specifically:
+  - Tool reference table: add new tools, remove deleted ones, update descriptions.
+  - Workflow section: reflect any changes to the orchestration sequence.
+  - Module map: add new modules, remove deleted ones.
+  - Setup/config: update if env vars, dependencies, or commands changed.
 - [ ] Update inline docstrings and type stubs for any public API that changed.
-- [ ] **Interim gate**: All documentation examples must be runnable as-is.
+- [ ] **Interim gate**: All documentation examples must be runnable as-is. \
+README must be accurate enough for a new session to pick up the project cold.
 
 ---
 
