@@ -41,17 +41,28 @@ _FAILING_STATES: frozenset[str] = frozenset({
 })
 
 
-def _run_gh(*args: str) -> str:
-    """Execute a gh CLI command and return stdout, raising RuntimeError on failure."""
+def _run_cli(cmd: str, *args: str, cwd: str | None = None) -> str:
+    """Run a CLI command and return stdout, raising RuntimeError on non-zero exit."""
     result = subprocess.run(
-        ["gh", *args],
+        [cmd, *args],
+        cwd=cwd,
         capture_output=True,
         text=True,
         check=False,
     )
     if result.returncode != 0:
-        raise RuntimeError(result.stderr.strip() or f"gh exited {result.returncode}")
+        raise RuntimeError(result.stderr.strip() or f"{cmd} exited {result.returncode}")
     return result.stdout
+
+
+def _run_gh(*args: str) -> str:
+    """Execute a gh CLI command and return stdout."""
+    return _run_cli("gh", *args)
+
+
+def _run_git(repo_path: str, *args: str) -> str:
+    """Execute a git command inside repo_path and return stdout."""
+    return _run_cli("git", *args, cwd=repo_path)
 
 
 def _ci_passing(rollup: list[dict[str, Any]]) -> tuple[bool, str]:
@@ -117,20 +128,6 @@ def merge_pr(pr_url: str, method: str = "squash") -> MergeResult:
 def get_pr_diff(pr_url: str) -> str:
     """Return the full unified diff of a pull request."""
     return _run_gh("pr", "diff", pr_url)
-
-
-def _run_git(repo_path: str, *args: str) -> str:
-    """Execute a git command in repo_path and return stdout."""
-    result = subprocess.run(
-        ["git", *args],
-        cwd=repo_path,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if result.returncode != 0:
-        raise RuntimeError(result.stderr.strip() or f"git exited {result.returncode}")
-    return result.stdout
 
 
 def commit_and_push(

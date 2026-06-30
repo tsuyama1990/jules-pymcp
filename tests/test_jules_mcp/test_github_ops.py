@@ -229,9 +229,6 @@ class TestRunGit:
 
 
 class TestCommitAndPush:
-    def _make_git(self, status_output: str = "M AGENTS.md") -> MagicMock:
-        return MagicMock(side_effect=lambda *a, **_kw: status_output if "status" in a else "")
-
     def test_adds_stages_files(self) -> None:
         with patch("jules_mcp.github_ops._run_git") as mock:
             mock.return_value = ""

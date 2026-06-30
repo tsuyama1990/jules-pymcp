@@ -382,7 +382,43 @@ def poll_batch_tool(session_ids: list[str]) -> BatchPollResult:
     return poll_batch(jules(), session_ids)
 
 
-# -------------------- Top-level orchestration entry point --------------------
+# -------------------- Batch prep + top-level entry point --------------------
+@mcp.tool(
+    name="create_agents_md",
+    title="Create AGENTS.md (low-level — prefer start_jules_batch)",
+    description=(
+        "Generate and write AGENTS.md to a local repository. "
+        "Prefer start_jules_batch which calls this automatically. "
+        "Use directly only when you need to review the file before committing."
+    ),
+    tags={"batch"},
+    annotations=ToolAnnotations(readOnlyHint=False, idempotentHint=True, destructiveHint=False),
+)
+def create_agents_md(
+    repo_path: str,
+    sub_projects: list[str],
+    integration_test_path: str = "tests/integration",
+    merge_order: list[str] | None = None,
+    extra_rules: list[str] | None = None,
+) -> str:
+    """Generate and write AGENTS.md to a local repository.
+
+    Args:
+        repo_path: Absolute path to the local repository root.
+        sub_projects: List of sub-project names or paths Jules will work on.
+        integration_test_path: Path to integration tests (default: 'tests/integration').
+        merge_order: Ordered list of sub-projects for merge sequencing, leaf-first.
+        extra_rules: Additional project-specific rules to append.
+    """
+    return _agents_md.write_agents_md(
+        repo_path=repo_path,
+        sub_projects=sub_projects,
+        integration_test_path=integration_test_path,
+        merge_order=merge_order,
+        extra_rules=extra_rules,
+    )
+
+
 @mcp.tool(
     name="start_jules_batch",
     title="Start Jules batch (use this, not create_batch_sessions)",
@@ -504,43 +540,6 @@ def get_pr_diff(pr_url: str) -> str:
         pr_url: Full GitHub PR URL, e.g. 'https://github.com/org/repo/pull/42'.
     """
     return _github_ops.get_pr_diff(pr_url)
-
-
-@mcp.tool(
-    name="create_agents_md",
-    title="Create AGENTS.md",
-    description=(
-        "Generate and write AGENTS.md to a local repository. "
-        "Call this before firing any Jules batch so Jules understands the project "
-        "structure, integration test contracts, merge order, and quality rules. "
-        "Returns the written content for review."
-    ),
-    tags={"github"},
-    annotations=ToolAnnotations(readOnlyHint=False, idempotentHint=True, destructiveHint=False),
-)
-def create_agents_md(
-    repo_path: str,
-    sub_projects: list[str],
-    integration_test_path: str = "tests/integration",
-    merge_order: list[str] | None = None,
-    extra_rules: list[str] | None = None,
-) -> str:
-    """Generate and write AGENTS.md to a local repository.
-
-    Args:
-        repo_path: Absolute path to the local repository root.
-        sub_projects: List of sub-project names or paths Jules will work on.
-        integration_test_path: Path to integration tests (default: 'tests/integration').
-        merge_order: Ordered list of sub-projects for merge sequencing, leaf-first.
-        extra_rules: Additional project-specific rules to append.
-    """
-    return _agents_md.write_agents_md(
-        repo_path=repo_path,
-        sub_projects=sub_projects,
-        integration_test_path=integration_test_path,
-        merge_order=merge_order,
-        extra_rules=extra_rules,
-    )
 
 
 def start_mcp() -> None:
