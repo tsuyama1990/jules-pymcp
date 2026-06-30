@@ -13,6 +13,9 @@ authors = [{ name = "Yurii Serhiichuk", email = "savik@gmail.com" }]
 keywords = ["jules", "mcp", "google"]
 license = "Apache-2.0"
 license-files = ["LICENSE"]
+[project.scripts]
+jules-run = "jules_mcp.cli:main"
+
 [project.urls]
 homepage = "https://github.com/CodeAgentBridge/jules-mcp-server"
 source = "https://github.com/CodeAgentBridge/jules-mcp-server.git"
@@ -91,6 +94,10 @@ ignore = [
 # Original upstream code — style issues acknowledged, not rewriting
 "jules_mcp/batch.py" = [
     "FBT001", "FBT002",  # boolean args are idiomatic for internal worker functions
+]
+"jules_mcp/cli.py" = [
+    "T201",     # print() is intentional in a CLI
+    "C901",     # complexity in _tail_activities is inherent
 ]
 "jules_mcp/jules_mcp.py" = [
     "D100", "D101", "D103", "D413",  # docstring formatting

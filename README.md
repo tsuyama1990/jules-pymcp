@@ -115,10 +115,20 @@ Phase 1 — Prep + Fire
     └── fires all Jules sessions concurrently
         └── each session: quality rules + acceptance criteria injected into prompt
 
-Phase 2 — Poll (every 5 minutes)
-  Call: poll_batch(session_ids)
-    ready=False  → reschedule in 5 min (Jules typically finishes in ~15 min)
-    ready=True   → proceed to Phase 3
+Phase 2 — Wait for user notification (zero token cost while idle)
+  Do NOT schedule automatic polling timers. Token cost per wakeup is
+  proportional to accumulated conversation history — polling every 5 min
+  on a long session becomes very expensive.
+
+  Instead:
+    1. After start_jules_batch returns, tell the user which session IDs
+       were created and ask them to say "PR ready" (or similar) once
+       Jules has opened a pull request.
+    2. When the user sends that message, call poll_batch(session_ids)
+       once to get the current state and pr_urls.
+    3. ready=True   → proceed to Phase 3
+       ready=False  → report which sessions are still pending;
+                      ask the user to notify again when done.
 
   Background (automatic, no action needed):
     SessionWatcher daemon per session
@@ -135,11 +145,15 @@ Phase 3 — Merge loop (Claude)
     run integration tests  → gate before next merge
 ```
 
-### Scheduled wakeup (Claude Code Remote)
+### Phase 2 token cost — why manual notification is preferred
 
-Jules takes ~15 minutes. After firing `start_jules_batch`, Claude schedules
-a wakeup every 5 minutes (within the 5-min prompt cache TTL — no cold-start cost).
-When `poll_batch` returns `ready=True`, Claude proceeds to the merge loop.
+Every scheduled wakeup re-sends the entire conversation history as input tokens.
+On a long batch (many sessions, verbose tool outputs), this makes 5-minute timers
+very expensive.
+
+**Preferred flow:** after `start_jules_batch`, Claude asks the user to send a message
+when Jules has opened a PR. Claude then calls `poll_batch` once on demand.
+No ScheduleWakeup, no recurring cost.
 
 ---
 
