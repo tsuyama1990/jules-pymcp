@@ -333,9 +333,10 @@ def list_all_activities(session_id: str) -> list[models.Activity]:
         "Each task gets quality rules injected and a self-critic review scheduled. "
         "Returns one result per task with session ID and initial state. "
         "After firing, call wait_for_batch to block until all sessions are done. "
-        "TASK SIZING: keep session count low — each session adds a full PR review + merge "
-        "cycle. Prefer 3-5 large tasks (5+ files, 3+ acceptance criteria each) over "
-        "many small ones. Consolidate related work into one task before calling."
+        "TASK SIZING: sweet spot is 5-10 files per session. "
+        "< 5 files → use Claude directly. 5-10 files → one session. "
+        "> 10 files → split before calling. "
+        "Each session adds a full PR review + merge cycle; keep session count low."
     ),
     tags={"batch"},
 )
@@ -466,12 +467,12 @@ def create_agents_md(
         "Single entry point for launching a Jules batch. "
         "Enforces the full prep sequence: writes AGENTS.md, commits+pushes, fires sessions. "
         "Returns session_ids — pass them to wait_for_batch to block until done. "
-        "TASK SIZING — each task should be a complete subsystem, not a single function: "
-        "aim for 5+ files changed, 3+ acceptance criteria, ~30-60 min of work. "
-        "Session count is the biggest token cost driver: 10 small tasks costs 10x more "
-        "to manage (poll + PR review + merge) than 1 large one. "
-        "Consolidate related small tasks before calling — one session per feature area, "
-        "not one session per function."
+        "TASK SIZING — sweet spot is 5-10 files per session: "
+        "< 5 files: use Claude directly (Jules overhead exceeds value); "
+        "5-10 files: one Jules session; "
+        "> 10 files: split into multiple sessions before calling. "
+        "Session count is the biggest token cost driver — each session adds a full "
+        "PR review + merge cycle. One cohesive feature area per session."
     ),
     tags={"batch"},
 )

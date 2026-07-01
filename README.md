@@ -87,19 +87,28 @@ If not, Claude coding directly is faster and cheaper.
 3 Claude turns (review + potential fix + merge). Submitting 10 tiny tasks creates 10×
 that overhead. Consolidate before you submit.
 
-| | Good Jules task (one session) | Too small — use Claude directly |
-|---|---|---|
-| Scope | Complete feature or module | One function, one bug fix |
-| Files touched | 5+ files | 1–2 files |
-| Acceptance criteria | 3+ items | 0–1 items |
-| Dev time equivalent | 30–60 min | < 15 min |
-| Example | Implement full auth module: JWT, login/logout/refresh endpoints, tests, docs | Add a `created_at` field to the User model |
+Three tiers based on expected file count:
 
-**Consolidate related small tasks before submitting:**
-- ❌ Three sessions: "add login endpoint", "add logout endpoint", "add refresh endpoint"
-- ✅ One session: "implement auth endpoints: login, logout, refresh — with tests"
+| Tier | Files touched | Action |
+|------|--------------|--------|
+| Too small | < 5 files | Use Claude directly — Jules overhead exceeds value |
+| Good Jules task | 5–10 files | One session — sweet spot |
+| Too large | > 10 files | Split into 2+ sessions before submitting |
 
-One large task per session, not one function per session.
+| | Good Jules task (one session) | Too small — Claude directly | Too large — split first |
+|---|---|---|---|
+| Scope | Complete feature or module | One function, one bug fix | Multiple unrelated subsystems |
+| Files touched | 5–10 files | 1–4 files | 10+ files |
+| Acceptance criteria | 3–6 items | 0–2 items | 6+ items (split by area) |
+| Dev time equivalent | 30–90 min | < 15 min | 2+ hours |
+
+**Consolidate small tasks; split large ones:**
+- ❌ Too small — three sessions: "add login", "add logout", "add refresh"
+- ✅ Correct — one session: "implement auth endpoints: login, logout, refresh (5–8 files)"
+- ❌ Too large — one session: "implement the entire user management system (15+ files)"
+- ✅ Correct — two sessions: "implement auth (login/logout/refresh)" + "implement profile (CRUD, avatar, settings)"
+
+One cohesive feature area per session.
 
 ---
 
