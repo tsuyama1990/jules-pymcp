@@ -64,6 +64,7 @@ skips = []
 
 [tool.ruff]
 line-length = 100
+exclude = ["scripts/"]
 
 [tool.ruff.lint]
 select = ["ALL"]

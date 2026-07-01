@@ -52,16 +52,20 @@ Jules has real overhead that Claude coding directly does not:
 
 | Cost | Jules | Claude directly |
 |------|-------|----------------|
-| Polling (waiting for PRs) | history_size × poll_count | zero |
+| Session management | N sessions × (poll + PR review + merge) turns | zero |
 | Prompt writing | 1 extra turn per task | zero |
 | Review / error recovery | 1+ turns per failure | immediate fix in same turn |
 
-**Jules pays off only when parallelism savings outweigh this overhead.**
+**Session count is the biggest cost multiplier.** Each session adds a full PR
+review + merge cycle. Ten small sessions costs 10× more to manage than one large one,
+and the parallelism gain is capped at Jules' concurrency limit (~4 sessions).
+
+**Jules pays off only when parallelism savings outweigh session management overhead.**
 
 ### Use Jules when
 
-- **N ≥ 3 independent tasks** that can run concurrently
-- Each task is **large enough** that it would take Claude multiple turns to implement
+- **N ≥ 3 large, independent tasks** that can run concurrently
+- Each task is substantial enough that Jules saves real wall-clock time
 - Tasks have **low coupling** (no cross-task dependencies mid-flight)
 - You can tolerate Jules' ~15 min startup latency
 
@@ -69,13 +73,33 @@ Jules has real overhead that Claude coding directly does not:
 
 - 1–2 tasks, or tasks that must run sequentially
 - Fast iteration is needed (tight error → fix → retest loops)
-- Tasks are small (Jules overhead > implementation time)
+- Tasks are small — Jules session overhead exceeds implementation time
 - Jules has already gotten stuck on this type of task before
 
 ### The break-even rule of thumb
 
 If `N × estimated_turns_per_task > 10`, Jules is likely worth it.
 If not, Claude coding directly is faster and cheaper.
+
+### Task sizing — bigger is better
+
+**The most common mistake is too many small tasks.** Each Jules session = 1 PR = at least
+3 Claude turns (review + potential fix + merge). Submitting 10 tiny tasks creates 10×
+that overhead. Consolidate before you submit.
+
+| | Good Jules task (one session) | Too small — use Claude directly |
+|---|---|---|
+| Scope | Complete feature or module | One function, one bug fix |
+| Files touched | 5+ files | 1–2 files |
+| Acceptance criteria | 3+ items | 0–1 items |
+| Dev time equivalent | 30–60 min | < 15 min |
+| Example | Implement full auth module: JWT, login/logout/refresh endpoints, tests, docs | Add a `created_at` field to the User model |
+
+**Consolidate related small tasks before submitting:**
+- ❌ Three sessions: "add login endpoint", "add logout endpoint", "add refresh endpoint"
+- ✅ One session: "implement auth endpoints: login, logout, refresh — with tests"
+
+One large task per session, not one function per session.
 
 ---
 

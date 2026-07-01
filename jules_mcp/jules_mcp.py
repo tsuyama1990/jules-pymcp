@@ -332,7 +332,10 @@ def list_all_activities(session_id: str) -> list[models.Activity]:
         "Fire multiple Jules coding sessions concurrently. "
         "Each task gets quality rules injected and a self-critic review scheduled. "
         "Returns one result per task with session ID and initial state. "
-        "After firing, call poll_batch every 5 minutes until ready=True, then merge PRs."
+        "After firing, call wait_for_batch to block until all sessions are done. "
+        "TASK SIZING: keep session count low — each session adds a full PR review + merge "
+        "cycle. Prefer 3-5 large tasks (5+ files, 3+ acceptance criteria each) over "
+        "many small ones. Consolidate related work into one task before calling."
     ),
     tags={"batch"},
 )
@@ -461,11 +464,14 @@ def create_agents_md(
     title="Start Jules batch (use this, not create_batch_sessions)",
     description=(
         "Single entry point for launching a Jules batch. "
-        "Enforces the full prep sequence in order: "
-        "(1) writes AGENTS.md to the local repo, "
-        "(2) commits and pushes it to GitHub so Jules sees it on clone, "
-        "(3) fires all Jules sessions concurrently with quality rules injected. "
-        "Returns session_ids — pass them to wait_for_batch (preferred) to block until done."
+        "Enforces the full prep sequence: writes AGENTS.md, commits+pushes, fires sessions. "
+        "Returns session_ids — pass them to wait_for_batch to block until done. "
+        "TASK SIZING — each task should be a complete subsystem, not a single function: "
+        "aim for 5+ files changed, 3+ acceptance criteria, ~30-60 min of work. "
+        "Session count is the biggest token cost driver: 10 small tasks costs 10x more "
+        "to manage (poll + PR review + merge) than 1 large one. "
+        "Consolidate related small tasks before calling — one session per feature area, "
+        "not one session per function."
     ),
     tags={"batch"},
 )
