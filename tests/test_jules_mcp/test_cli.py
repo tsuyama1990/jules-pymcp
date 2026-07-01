@@ -150,7 +150,7 @@ class TestMain:
                 "--title", "My task",
             ])
 
-        mock_ep.assert_called_once_with("add tests", None)
+        mock_ep.assert_called_once_with("add tests", [])
         mock_client.sessions.create.assert_called_once_with(
             prompt="enforced",
             source="sources/github/org/repo",

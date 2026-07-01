@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     from concurrent.futures import Future
 
     from jules_agent_sdk import JulesClient
-    from jules_agent_sdk.models import SessionOutput
+    from jules_agent_sdk.models import Session
 
 logger = logging.getLogger(__name__)
 
@@ -68,9 +68,9 @@ class BatchPollResult(BaseModel):
     statuses: list[BatchSessionStatus]
 
 
-def _extract_pr_url(outputs: list[SessionOutput]) -> str | None:
+def _extract_pr_url(session: Session) -> str | None:
     """Extract the first PR URL from session outputs."""
-    for output in outputs:
+    for output in session.outputs:
         if output.pull_request and output.pull_request.url:
             return output.pull_request.url
     return None
@@ -84,7 +84,7 @@ def _create_one(
     """Create a single session — runs inside a thread pool worker."""
     try:
         session = client.sessions.create(
-            prompt=build_enforced_prompt(task.prompt, task.acceptance_criteria or None),
+            prompt=build_enforced_prompt(task.prompt, task.acceptance_criteria),
             source=task.source,
             starting_branch=task.branch,
             title=task.title,
@@ -133,7 +133,7 @@ def _fetch_status(client: JulesClient, session_id: str) -> BatchSessionStatus:
     return BatchSessionStatus(
         session_id=session_id,
         state=session.state.value,
-        pr_url=_extract_pr_url(session.outputs),
+        pr_url=_extract_pr_url(session),
     )
 
 

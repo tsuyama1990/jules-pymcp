@@ -51,14 +51,20 @@ def _make_task(label: str = "task-1") -> BatchTaskSpec:
 class TestExtractPrUrl:
     def test_returns_url_when_present(self) -> None:
         session = _make_session(pr_url="https://github.com/org/repo/pull/1")
-        assert _extract_pr_url(session.outputs) == "https://github.com/org/repo/pull/1"
+        assert _extract_pr_url(session) == "https://github.com/org/repo/pull/1"
 
     def test_returns_none_when_no_outputs(self) -> None:
-        assert _extract_pr_url([]) is None
+        assert _extract_pr_url(_make_session()) is None
 
     def test_returns_none_when_no_pr(self) -> None:
-        outputs = [models.SessionOutput(pull_request=None)]
-        assert _extract_pr_url(outputs) is None
+        session = models.Session(
+            name="sessions/test",
+            prompt="test",
+            source_context=models.SourceContext(source="sources/test"),
+            state=models.SessionState.IN_PROGRESS,
+            outputs=[models.SessionOutput(pull_request=None)],
+        )
+        assert _extract_pr_url(session) is None
 
 
 class TestCreateOne:
