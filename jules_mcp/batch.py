@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import TYPE_CHECKING
 
@@ -126,6 +127,16 @@ def create_batch(
     return results
 
 
+def _fetch_status(client: JulesClient, session_id: str) -> BatchSessionStatus:
+    """Fetch status for a single session — runs inside a thread pool worker."""
+    session = client.sessions.get(session_id)
+    return BatchSessionStatus(
+        session_id=session_id,
+        state=session.state.value,
+        pr_url=_extract_pr_url(session.outputs),
+    )
+
+
 def get_batch_status(
     client: JulesClient,
     session_ids: list[str],
@@ -178,11 +189,22 @@ def poll_batch(client: JulesClient, session_ids: list[str]) -> BatchPollResult:
     )
 
 
-def _fetch_status(client: JulesClient, session_id: str) -> BatchSessionStatus:
-    """Fetch status for a single session — runs inside a thread pool worker."""
-    session = client.sessions.get(session_id)
-    return BatchSessionStatus(
-        session_id=session_id,
-        state=session.state.value,
-        pr_url=_extract_pr_url(session.outputs),
-    )
+def wait_for_batch(
+    client: JulesClient,
+    session_ids: list[str],
+    timeout_minutes: int = 120,
+) -> BatchPollResult:
+    """Block until all sessions reach a terminal state or timeout expires.
+
+    Polls every 60 seconds internally — the caller blocks for the entire duration.
+    Returns the final BatchPollResult: ready=True means all done; ready=False means
+    timeout was reached with sessions still pending.
+    """
+    deadline = time.monotonic() + timeout_minutes * 60
+    while True:
+        result = poll_batch(client, session_ids)
+        if result.ready:
+            return result
+        if time.monotonic() >= deadline:
+            return result
+        time.sleep(60)

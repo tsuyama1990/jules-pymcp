@@ -15,6 +15,7 @@ from jules_mcp.batch import (
     create_batch,
     get_batch_status,
     poll_batch,
+    wait_for_batch,
 )
 
 
@@ -299,3 +300,61 @@ class TestPollBatch:
         result = poll_batch(client, ["sessions/s1"])
         assert len(result.statuses) == 1
         assert result.statuses[0].session_id == "sessions/s1"
+
+
+class TestWaitForBatch:
+    @patch("jules_mcp.batch.time.sleep")
+    def test_returns_immediately_when_ready_on_first_poll(self, mock_sleep: MagicMock) -> None:
+        client = MagicMock()
+        client.sessions.get.return_value = _make_session(
+            state=models.SessionState.COMPLETED,
+            pr_url="https://github.com/org/repo/pull/1",
+        )
+        result = wait_for_batch(client, ["sessions/s1"])
+        assert result.ready is True
+        assert result.pr_urls == ["https://github.com/org/repo/pull/1"]
+        mock_sleep.assert_not_called()
+
+    @patch("jules_mcp.batch.time.sleep")
+    def test_polls_until_all_sessions_complete(self, mock_sleep: MagicMock) -> None:
+        client = MagicMock()
+        client.sessions.get.side_effect = [
+            _make_session("sessions/s1", state=models.SessionState.IN_PROGRESS),
+            _make_session("sessions/s1", state=models.SessionState.COMPLETED,
+                          pr_url="https://github.com/org/repo/pull/1"),
+        ]
+        result = wait_for_batch(client, ["sessions/s1"])
+        assert result.ready is True
+        mock_sleep.assert_called_once_with(60)
+
+    @patch("jules_mcp.batch.time.monotonic")
+    @patch("jules_mcp.batch.time.sleep")
+    def test_returns_on_timeout(self, mock_sleep: MagicMock, mock_monotonic: MagicMock) -> None:
+        mock_monotonic.side_effect = [0.0, float(120 * 60 + 1)]
+        client = MagicMock()
+        client.sessions.get.return_value = _make_session(state=models.SessionState.IN_PROGRESS)
+        result = wait_for_batch(client, ["sessions/s1"], timeout_minutes=120)
+        assert result.ready is False
+        mock_sleep.assert_not_called()
+
+    @patch("jules_mcp.batch.time.sleep")
+    def test_respects_custom_timeout(self, _mock_sleep: MagicMock) -> None:
+        client = MagicMock()
+        client.sessions.get.return_value = _make_session(
+            state=models.SessionState.COMPLETED
+        )
+        result = wait_for_batch(client, ["sessions/s1"], timeout_minutes=30)
+        assert result.ready is True
+
+    @patch("jules_mcp.batch.time.sleep")
+    def test_returns_partial_result_on_mixed_states(self, _mock_sleep: MagicMock) -> None:
+        client = MagicMock()
+        client.sessions.get.side_effect = [
+            _make_session("sessions/s1", state=models.SessionState.COMPLETED,
+                          pr_url="https://github.com/org/repo/pull/1"),
+            _make_session("sessions/s2", state=models.SessionState.COMPLETED,
+                          pr_url="https://github.com/org/repo/pull/2"),
+        ]
+        result = wait_for_batch(client, ["sessions/s1", "sessions/s2"])
+        assert result.ready is True
+        assert len(result.pr_urls) == 2

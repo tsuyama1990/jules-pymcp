@@ -148,30 +148,23 @@ Phase 1 — Prep + Fire
     └── fires all Jules sessions concurrently
         └── each session: quality rules + acceptance criteria injected into prompt
 
-Phase 2 — Wait for user notification (zero token cost while idle)
-  Do NOT schedule automatic polling timers. Token cost per wakeup is
-  proportional to accumulated conversation history — polling every 5 min
-  on a long session becomes very expensive.
+Phase 2 — Wait for batch to complete (one Claude turn)
+  Call wait_for_batch(session_ids) once. The MCP server polls Jules internally
+  (60 s between checks) and returns only when all sessions reach a terminal
+  state — consuming ONE Claude turn instead of 20+.
 
-  Instead:
-    1. After start_jules_batch returns, tell the user which session IDs
-       were created and ask them to say "PR ready" (or similar) once
-       Jules has opened a pull request.
-    2. When the user sends that message, call poll_batch(session_ids)
-       once to get the current state and pr_urls.
-    3. ready=True   → proceed to Phase 3
-       ready=False  → report which sessions are still pending;
-                      ask the user to notify again when done.
+  ready=True   → all sessions done, pr_urls is complete → proceed to Phase 3
+  ready=False  → timeout reached; check pending/failed fields, decide whether
+                 to call wait_for_batch again or proceed with partial results.
 
   !! DO NOT call these tools during Phase 2 !!
-    list_all_activities   — response is large and accumulates in context
-    list_activities       — same problem
-    get_activity          — unnecessary; self-critic is handled automatically
-    get_session           — poll_batch already calls this internally
-    wait_for_session_completion — blocks and adds verbose output to context
-
-  poll_batch is the only tool needed. It returns ready/pr_urls/pending/failed —
-  no activity logs, no raw session objects. One call per user notification.
+    list_all_activities       — response is large and accumulates in context
+    list_activities           — same problem
+    get_activity              — unnecessary; self-critic is handled automatically
+    get_session               — wait_for_batch already calls this internally
+    wait_for_session_completion — single-session; use wait_for_batch for batches
+    poll_batch + ScheduleWakeup — each wakeup re-sends full conversation history;
+                                  use wait_for_batch to block in one turn instead
 
   Background (automatic, no action needed):
     SessionWatcher daemon per session
@@ -189,15 +182,15 @@ Phase 3 — Merge loop (Claude)
     run integration tests  → gate before next merge
 ```
 
-### Phase 2 token cost — why manual notification is preferred
+### Phase 2 token cost — why wait_for_batch is preferred
 
-Every scheduled wakeup re-sends the entire conversation history as input tokens.
-On a long batch (many sessions, verbose tool outputs), this makes 5-minute timers
-very expensive.
+Every Claude turn re-sends the entire conversation history as input tokens.
+Polling Jules from Claude (via `poll_batch` + `ScheduleWakeup`) means each
+wakeup on a long session is very expensive.
 
-**Preferred flow:** after `start_jules_batch`, Claude asks the user to send a message
-when Jules has opened a PR. Claude then calls `poll_batch` once on demand.
-No ScheduleWakeup, no recurring cost.
+**`wait_for_batch` eliminates this entirely:** Claude calls it once, the MCP server
+Python thread blocks polling Jules internally, and Claude resumes only when all
+sessions are done. One turn consumed regardless of how long Jules takes.
 
 ---
 
@@ -208,7 +201,8 @@ No ScheduleWakeup, no recurring cost.
 | Tool | When to call |
 |------|-------------|
 | `start_jules_batch` | **Primary entry point.** Writes AGENTS.md, commits+pushes, fires Jules concurrently. |
-| `poll_batch` | Call every 5 min after `start_jules_batch`. Returns `ready=True` + `pr_urls` when done. |
+| `wait_for_batch` | **Preferred Phase 2 tool.** Call once after `start_jules_batch`. Blocks internally until all sessions finish — one Claude turn consumed. |
+| `poll_batch` | One-shot snapshot. Use only when you need a non-blocking check (e.g. after a user notification). Prefer `wait_for_batch`. |
 | `create_agents_md` | Low-level. Use only if you need to review AGENTS.md before committing. |
 
 ### GitHub PR operations

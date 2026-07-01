@@ -27,6 +27,7 @@ from jules_mcp.batch import (
     BatchTaskSpec,
     create_batch,
     poll_batch,
+    wait_for_batch,
 )
 from jules_mcp.prompt import build_enforced_prompt
 from jules_mcp.session_watcher import watch_session_for_pr
@@ -355,13 +356,14 @@ def create_batch_sessions(
 
 @mcp.tool(
     name="poll_batch",
-    title="Poll batch (call every 5 min)",
+    title="Poll batch (one-shot snapshot — prefer wait_for_batch)",
     description=(
-        "Check status of all sessions in a batch — non-blocking snapshot. "
-        "Call every 5 minutes after create_batch_sessions. "
-        "When ready=True every session has finished: pr_urls lists PRs to merge in order, "
-        "failed lists sessions that need attention. "
-        "If ready=False, reschedule and call again in 5 minutes."
+        "One-shot status check across all sessions — non-blocking snapshot. "
+        "Prefer wait_for_batch which blocks internally and uses only one Claude turn. "
+        "Use poll_batch only when you need a single snapshot without blocking "
+        "(e.g. after a user notification). "
+        "ready=True: all sessions terminal, pr_urls ready to merge. "
+        "ready=False: sessions still running, check pending/failed."
     ),
     tags={"batch"},
 )
@@ -380,6 +382,41 @@ def poll_batch_tool(session_ids: list[str]) -> BatchPollResult:
 
     """
     return poll_batch(jules(), session_ids)
+
+
+@mcp.tool(
+    name="wait_for_batch",
+    title="Wait for batch to complete (preferred Phase 2 tool)",
+    description=(
+        "PREFERRED Phase 2 tool. Call once after start_jules_batch. "
+        "The MCP server polls Jules internally (60 s between checks) and returns only when "
+        "all sessions reach a terminal state — consuming ONE Claude turn instead of 20+. "
+        "ready=True: all sessions done, pr_urls is complete, proceed to Phase 3. "
+        "ready=False: timeout reached; check pending/failed for what remains. "
+        "DO NOT use poll_batch + ScheduleWakeup — that re-sends the full conversation "
+        "history as tokens on every wakeup."
+    ),
+    tags={"batch"},
+)
+def wait_for_batch_tool(
+    session_ids: list[str],
+    timeout_minutes: int = 120,
+) -> BatchPollResult:
+    """Block until all sessions reach a terminal state or timeout expires.
+
+    Args:
+        session_ids: List of session IDs returned by start_jules_batch.
+        timeout_minutes: Maximum wait time in minutes (default: 120).
+
+    Returns:
+        ready: True when all sessions finished before timeout.
+        pr_urls: PR URLs for completed sessions, in input order.
+        pending: Session IDs still running (non-empty only on timeout).
+        failed: Session IDs that failed or errored.
+        statuses: Full status detail for each session.
+
+    """
+    return wait_for_batch(jules(), session_ids, timeout_minutes)
 
 
 # -------------------- Batch prep + top-level entry point --------------------
@@ -428,7 +465,7 @@ def create_agents_md(
         "(1) writes AGENTS.md to the local repo, "
         "(2) commits and pushes it to GitHub so Jules sees it on clone, "
         "(3) fires all Jules sessions concurrently with quality rules injected. "
-        "Returns session_ids — pass them to poll_batch every 5 minutes."
+        "Returns session_ids — pass them to wait_for_batch (preferred) to block until done."
     ),
     tags={"batch"},
 )

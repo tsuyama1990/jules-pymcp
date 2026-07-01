@@ -243,3 +243,34 @@ class TestActivities:
             == "sessions/test-session/activities/test-activity-2"
         )
         mock_jules_client.activities.list_all.assert_called_once_with("test-session")
+
+
+@pytest.mark.asyncio
+class TestBatchTools:
+    async def test_wait_for_batch_returns_ready(
+        self, client: Client, mock_jules_client: MagicMock
+    ):
+        mock_jules_client.sessions.get.return_value = models.Session(
+            name="sessions/s1",
+            prompt="test",
+            source_context=models.SourceContext(source="sources/test"),
+            state=models.SessionState.COMPLETED,
+            outputs=[
+                models.SessionOutput(
+                    pull_request=models.PullRequest(
+                        url="https://github.com/org/repo/pull/1",
+                        title="PR",
+                        description="",
+                    )
+                )
+            ],
+        )
+        with patch("jules_mcp.batch.time.sleep"):
+            result = await client.call_tool(
+                "wait_for_batch",
+                {"session_ids": ["sessions/s1"]},
+            )
+        assert result.structured_content["ready"] is True
+        assert result.structured_content["pr_urls"] == [
+            "https://github.com/org/repo/pull/1"
+        ]
