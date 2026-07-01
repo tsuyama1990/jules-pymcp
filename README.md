@@ -46,6 +46,39 @@ Jules cannot receive a task without them.
 
 ---
 
+## When to use Jules vs Claude directly
+
+Jules has real overhead that Claude coding directly does not:
+
+| Cost | Jules | Claude directly |
+|------|-------|----------------|
+| Polling (waiting for PRs) | history_size × poll_count | zero |
+| Prompt writing | 1 extra turn per task | zero |
+| Review / error recovery | 1+ turns per failure | immediate fix in same turn |
+
+**Jules pays off only when parallelism savings outweigh this overhead.**
+
+### Use Jules when
+
+- **N ≥ 3 independent tasks** that can run concurrently
+- Each task is **large enough** that it would take Claude multiple turns to implement
+- Tasks have **low coupling** (no cross-task dependencies mid-flight)
+- You can tolerate Jules' ~15 min startup latency
+
+### Use Claude directly when
+
+- 1–2 tasks, or tasks that must run sequentially
+- Fast iteration is needed (tight error → fix → retest loops)
+- Tasks are small (Jules overhead > implementation time)
+- Jules has already gotten stuck on this type of task before
+
+### The break-even rule of thumb
+
+If `N × estimated_turns_per_task > 10`, Jules is likely worth it.
+If not, Claude coding directly is faster and cheaper.
+
+---
+
 ## Setup
 
 ### 1. Prerequisites
