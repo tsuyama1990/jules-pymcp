@@ -130,10 +130,21 @@ Phase 2 — Wait for user notification (zero token cost while idle)
        ready=False  → report which sessions are still pending;
                       ask the user to notify again when done.
 
+  !! DO NOT call these tools during Phase 2 !!
+    list_all_activities   — response is large and accumulates in context
+    list_activities       — same problem
+    get_activity          — unnecessary; self-critic is handled automatically
+    get_session           — poll_batch already calls this internally
+    wait_for_session_completion — blocks and adds verbose output to context
+
+  poll_batch is the only tool needed. It returns ready/pr_urls/pending/failed —
+  no activity logs, no raw session objects. One call per user notification.
+
   Background (automatic, no action needed):
     SessionWatcher daemon per session
     └── detects PR open → auto-sends self-critic review to Jules
         (DRY, SOLID, BONSAI cleanup, coverage, mutation testing)
+        Claude does NOT need to check activities or send self-critic manually.
 
 Phase 3 — Merge loop (Claude)
   For each pr_url in merge_order:
