@@ -64,6 +64,7 @@ fabric.properties
 [Ll]ib64
 [Ll]ocal
 [Ss]cripts
+!scripts/
 pyvenv.cfg
 .venv
 pip-selfcheck.json

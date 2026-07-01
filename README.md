@@ -132,6 +132,30 @@ Add to your `~/.claude/settings.json` (or equivalent MCP config):
 
 ---
 
+## Before launching Jules — keep the PC awake
+
+Jules sessions run for 15–60+ minutes. If the PC suspends mid-session, the
+MCP server exits and Jules stalls (state stays `IN_PROGRESS` but nothing progresses).
+
+**Run these in two tmux panes before calling `start_jules_batch`:**
+
+```bash
+# Pane 1 — sleep inhibitor (independent of Claude Code)
+tmux new -d -s keep-awake 'scripts/keep_awake.sh 180'   # 3 hours; adjust as needed
+
+# Pane 2 — session watcher (survives Claude Code exit)
+# Run after start_jules_batch returns and you have session IDs:
+tmux new -d -s jules-watch 'scripts/watch_jules.sh --file jules_sessions.json'
+# or pass IDs directly:
+# tmux new -d -s jules-watch 'scripts/watch_jules.sh sessions/abc123 sessions/def456'
+```
+
+When Jules is done: `tmux kill-session -t keep-awake && tmux kill-session -t jules-watch`
+
+The watcher logs to `jules_watch.log` in the current directory — check it after waking up.
+
+---
+
 ## Workflow
 
 ### Full fan-out/fan-in orchestration
@@ -302,12 +326,19 @@ uv run pre-commit install   # installs ruff + mypy + bandit hooks
 ```
 jules_mcp/
   jules_mcp.py        MCP tool definitions (FastMCP server)
-  batch.py            Concurrent session creation + polling (BatchTaskSpec, poll_batch)
+  batch.py            Concurrent session creation + polling (BatchTaskSpec, poll_batch, wait_for_batch)
   github_ops.py       gh/git CLI wrappers (PR status, merge, diff, commit+push)
   agents_md.py        AGENTS.md generation
   prompt.py           build_enforced_prompt — injects quality rules + acceptance criteria
   self_critic.py      Self-critic review template (DRY, SOLID, BONSAI, static checks)
   session_watcher.py  Daemon thread — polls Jules, auto-sends self-critic on PR open
+  cli.py              jules-run CLI — create or monitor a single session with live logs
+
+scripts/
+  keep_awake.sh       Standalone sleep inhibitor — run in tmux before Jules batch
+  watch_jules.sh      Shell wrapper for watch_jules.py
+  watch_jules.py      Polls Jules sessions; logs to jules_watch.log; survives Claude Code exit
+  jules-mcp.service   systemd user service template for a persistent MCP server
 ```
 
 ---

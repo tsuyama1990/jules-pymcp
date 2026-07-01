@@ -1,0 +1,42 @@
+# systemd user service for a persistent Jules MCP server.
+# Benefits over on-demand spawn:
+#   - Sleep inhibitor is always active while the service is up
+#   - Claude Code can connect any time, not just at startup
+#   - Survives Claude Code restarts without losing the inhibitor
+#
+# Install:
+#   cp scripts/jules-mcp.service ~/.config/systemd/user/jules-mcp.service
+#   # Edit WorkingDirectory and JULES_API_KEY below first
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now jules-mcp
+#
+# Then update ~/.claude/settings.json to use HTTP transport:
+#   "mcpServers": {
+#     "jules": {
+#       "url": "http://127.0.0.1:8082/mcp",
+#       "transport": "http"
+#     }
+#   }
+#
+# Status / logs:
+#   systemctl --user status jules-mcp
+#   journalctl --user -u jules-mcp -f
+
+[Unit]
+Description=Jules MCP Server (with sleep inhibitor)
+After=network.target
+
+[Service]
+WorkingDirectory=/home/tomo/project/000_devenv/jules-pymcp
+ExecStart=systemd-inhibit \
+    --what=sleep:idle:handle-lid-switch \
+    --why="Jules MCP Server" \
+    --mode=block \
+    uv run --directory /home/tomo/project/000_devenv/jules-pymcp \
+    python -m jules_mcp --transport http --port 8082
+Environment=JULES_API_KEY=REPLACE_WITH_YOUR_KEY
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
